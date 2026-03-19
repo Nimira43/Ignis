@@ -70,73 +70,8 @@ scene.add(ambient)
 // Fog for volcanic atmosphere
 scene.fog = new THREE.FogExp2(0x120306, 0.008)
 
-// Ember particle system
-const emberCount = 600
-const emberGeometry = new THREE.BufferGeometry()
-const emberPositions = new Float32Array(emberCount * 3)
-const emberVelocities = new Float32Array(emberCount)
-const emberSizes = new Float32Array(emberCount)
-
-for (let i = 0; i < emberCount; i++) {
-  const i3 = i * 3
-
-  // Start near the lava surface
-  emberPositions[i3] = (Math.random() - 0.5) * world.plane.width * 0.8
-  emberPositions[i3 + 1] = 0.5
-  emberPositions[i3 + 2] = (Math.random() - 0.5) * world.plane.height * 0.8
-
-  // Rising speed
-  emberVelocities[i] = 0.1 + Math.random() * 0.3
-
-  // Spark size
-  emberSizes[i] = 0.8 + Math.random() * 1.5
-}
-
-emberGeometry.setAttribute(
-  'position',
-  new THREE.BufferAttribute(emberPositions, 3)
-)
-
-function createSparkTexture() {
-  const size = 64
-  const canvas = document.createElement('canvas')
-  canvas.width = size
-  canvas.height = size
-
-  const ctx = canvas.getContext('2d')
-
-  const gradient = ctx.createRadialGradient(
-    size / 2, size / 2, 2,
-    size / 2, size / 2, size / 2
-  )
-
-  gradient.addColorStop(0, 'rgba(255,180,80,1)')
-  gradient.addColorStop(0.3, 'rgba(255,120,40,0.8)')
-  gradient.addColorStop(0.6, 'rgba(255,80,20,0.4)')
-  gradient.addColorStop(1, 'rgba(0,0,0,0)')
-
-  ctx.fillStyle = gradient
-  ctx.fillRect(0, 0, size, size)
-
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.needsUpdate = true
-  return texture
-}
 
 
-const emberMaterial = new THREE.PointsMaterial({
-  color: new THREE.Color(1.0, 0.25, 0.05),
-  size: 2,
-  sizeAttenuation: true,
-  transparent: true,
-  opacity: 0.9,
-  depthWrite: false,
-  map: createSparkTexture(),   
-  alphaTest: 0.1               
-})
-
-const emberPoints = new THREE.Points(emberGeometry, emberMaterial)
-scene.add(emberPoints)
 
 // Plane mesh
 let planeMesh
@@ -336,34 +271,6 @@ function animate() {
     camera.position.x += (Math.random() - 0.5) * shake
     camera.position.y += (Math.random() - 0.5) * shake
   }
-
-  // Ember animation
-  const emberPos = emberGeometry.attributes.position.array
-
-  for (let i = 0; i < emberCount; i++) {
-    const i3 = i * 3
-
-    // Rise upward
-    emberPos[i3 + 1] += emberVelocities[i]
-
-    // Horizontal drift
-    emberPos[i3] += (Math.random() - 0.5) * 0.1
-    emberPos[i3 + 2] += (Math.random() - 0.5) * 0.1
-
-    // Fade out as they rise
-    const height = emberPos[i3 + 1]
-    const fade = Math.max(0, 1 - height / 80)
-    emberMaterial.opacity = fade
-
-    // Reset ember when too high
-    if (height > 80) {
-      emberPos[i3] = (Math.random() - 0.5) * world.plane.width * 0.8
-      emberPos[i3 + 1] = 0.5
-      emberPos[i3 + 2] = (Math.random() - 0.5) * world.plane.height * 0.8
-    }
-  }
-
-  emberGeometry.attributes.position.needsUpdate = true
 
   renderer.render(scene, camera)
 }
