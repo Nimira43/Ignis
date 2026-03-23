@@ -3,6 +3,11 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import gsap from 'gsap'
 import GUI from 'lil-gui'
 
+// Post Processing
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
+
 // GUI
 const gui = new GUI()
 
@@ -67,7 +72,7 @@ scene.add(rimLight)
 const ambient = new THREE.AmbientLight(0x330000, 0.6)
 scene.add(ambient)
 
-// Fog for volcanic atmosphere
+// Fog
 scene.fog = new THREE.FogExp2(0x120306, 0.008)
 
 // Ember particle system
@@ -80,15 +85,11 @@ const emberSizes = new Float32Array(emberCount)
 for (let i = 0; i < emberCount; i++) {
   const i3 = i * 3
 
-  // Start near the lava surface
   emberPositions[i3] = (Math.random() - 0.5) * world.plane.width * 0.8
   emberPositions[i3 + 1] = 0.5
   emberPositions[i3 + 2] = (Math.random() - 0.5) * world.plane.height * 0.8
 
-  // Rising speed
   emberVelocities[i] = 0.1 + Math.random() * 0.3
-
-  // Spark size
   emberSizes[i] = 0.8 + Math.random() * 1.5
 }
 
@@ -123,7 +124,6 @@ function createSparkTexture() {
   return texture
 }
 
-
 const emberMaterial = new THREE.PointsMaterial({
   color: new THREE.Color(1.0, 0.25, 0.05),
   size: 2,
@@ -131,8 +131,8 @@ const emberMaterial = new THREE.PointsMaterial({
   transparent: true,
   opacity: 0.9,
   depthWrite: false,
-  map: createSparkTexture(),   
-  alphaTest: 0.1               
+  map: createSparkTexture(),
+  alphaTest: 0.1
 })
 
 const emberPoints = new THREE.Points(emberGeometry, emberMaterial)
@@ -158,7 +158,7 @@ function createPlane() {
 
   planeMesh = new THREE.Mesh(geometry, material)
   planeMesh.position.set(0, 0, 0)
-  planeMesh.rotation.set(-Math.PI / 2, 0, 0) // ground plane
+  planeMesh.rotation.set(-Math.PI / 2, 0, 0)
   scene.add(planeMesh)
 }
 
@@ -187,7 +187,6 @@ function regeneratePlane() {
     const y = array[i3 + 1]
     const z = array[i3 + 2]
 
-    // Slight crust variation
     array[i3] = x + (Math.random() - 0.5) * 2
     array[i3 + 1] = y + (Math.random() - 0.5) * 0.5
     array[i3 + 2] = z + (Math.random() - 0.5) * 2
@@ -198,7 +197,6 @@ function regeneratePlane() {
   position.randomValues = randomValues
   position.originalPosition = position.array.slice()
 
-  // Lava vertex colours (dark crust + glowing cracks)
   const colours = []
   for (let i = 0; i < vertexCount; i++) {
     const i3 = i * 3
@@ -206,32 +204,35 @@ function regeneratePlane() {
     const z = position.array[i3 + 2]
 
     const dist = Math.sqrt(x * x + z * z)
-    const crackNoise = Math.abs(Math.sin(dist * 0.15)) // radial-ish cracks
-
+    const crackNoise = Math.abs(Math.sin(dist * 0.15))
     const crack = Math.pow(crackNoise, world.lava.crackSharpness)
+
+    const warmBase = {
+      r: 0.25,
+      g: 0.07,
+      b: 0.02
+    }
 
     const base = world.lava.baseDarkness * (1 - crack)
     const glow = crack * world.lava.glowIntensity
 
-    const r = base + glow * 1.0
-    const g = base + glow * 0.35
-    const b = base + glow * 0.05
+    const r = warmBase.r * base + glow * 1.0
+    const g = warmBase.g * base + glow * 0.45
+    const b = warmBase.b * base + glow * 0.15
 
     colours.push(r, g, b)
   }
-
   planeMesh.geometry.setAttribute(
     'color',
     new THREE.BufferAttribute(new Float32Array(colours), 3)
   )
-
   planeMesh.position.set(0, 0, 0)
   planeMesh.rotation.set(-Math.PI / 2, 0, 0)
 }
 
 regeneratePlane()
 
-// lil‑gui controls
+// GUI
 const planeFolder = gui.addFolder('Plane')
 planeFolder.add(world.plane, 'width', 100, 800).onFinishChange(regeneratePlane)
 planeFolder.add(world.plane, 'height', 100, 800).onFinishChange(regeneratePlane)
@@ -243,9 +244,9 @@ planeFolder
   .onFinishChange(regeneratePlane)
 
 const waveFolder = gui.addFolder('Waves')
-waveFolder.add(world.waves, 'amplitude', 0, 6, 0.1)
-waveFolder.add(world.waves, 'frequency', 0.1, 2, 0.05)
-waveFolder.add(world.waves, 'speed', 0.1, 2, 0.05)
+waveFolder.add(world.waves, 'amplitude', 0, 10, 0.1)
+waveFolder.add(world.waves, 'frequency', 0.1, 5, 0.05)
+waveFolder.add(world.waves, 'speed', 0.1, 5, 0.05)
 
 const lavaFolder = gui.addFolder('Lava')
 lavaFolder.add(world.lava, 'glowIntensity', 0.5, 3, 0.1).onFinishChange(regeneratePlane)
@@ -266,9 +267,49 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight
   camera.updateProjectionMatrix()
   renderer.setSize(window.innerWidth, window.innerHeight)
+  composer.setSize(window.innerWidth, window.innerHeight)
 })
 
-// Animation loop
+// Heat Have Shader
+const HeatHazeShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    time: { value: 0 },
+    intensity: { value: 0.015 }
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float time;
+    uniform float intensity;
+    varying vec2 vUv;
+
+    float noise(vec2 p) {
+      return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453);
+    }
+
+    void main() {
+      float n = noise(vUv * 10.0 + time * 0.5);
+      vec2 distorted = vUv + (n - 0.5) * intensity;
+      gl_FragColor = texture2D(tDiffuse, distorted);
+    }
+  `
+}
+
+// Post Processing Setup
+const composer = new EffectComposer(renderer)
+composer.addPass(new RenderPass(scene, camera))
+
+const heatHazePass = new ShaderPass(HeatHazeShader)
+composer.addPass(heatHazePass)
+
+// Animation Loop
 let frame = 0
 function animate() {
   requestAnimationFrame(animate)
@@ -280,6 +321,8 @@ function animate() {
   const { array, originalPosition, randomValues } = position
   const vertexCount = position.count
 
+  const t = frame
+
   for (let i = 0; i < vertexCount; i++) {
     const i3 = i * 3
 
@@ -287,9 +330,12 @@ function animate() {
     const oy = originalPosition[i3 + 1]
     const oz = originalPosition[i3 + 2]
 
+    // Layered Lava Flow
     const wave =
-      Math.sin(frame * world.waves.frequency + randomValues[i]) *
-      world.waves.amplitude
+      Math.sin((ox + t * 0.6) * world.waves.frequency + randomValues[i]) *
+      world.waves.amplitude * 0.6 +
+      Math.cos((oz + t * 0.4) * world.waves.frequency * 0.7 + randomValues[i] * 1.3) *
+      world.waves.amplitude * 0.4
 
     array[i3] = ox
     array[i3 + 1] = oy + wave
@@ -298,7 +344,7 @@ function animate() {
 
   position.needsUpdate = true
 
-  // Hover interaction: glow pulse
+  // Hover interaction
   raycaster.setFromCamera(mouse, camera)
   const intersects = raycaster.intersectObject(planeMesh)
 
@@ -330,7 +376,6 @@ function animate() {
       }
     })
 
-    // Subtle camera shake when close to the surface
     const dist = point.length()
     const shake = Math.max(0, 1 - dist / (world.plane.width * 0.7)) * 0.2
     camera.position.x += (Math.random() - 0.5) * shake
@@ -343,19 +388,15 @@ function animate() {
   for (let i = 0; i < emberCount; i++) {
     const i3 = i * 3
 
-    // Rise upward
     emberPos[i3 + 1] += emberVelocities[i]
 
-    // Horizontal drift
     emberPos[i3] += (Math.random() - 0.5) * 0.1
     emberPos[i3 + 2] += (Math.random() - 0.5) * 0.1
 
-    // Fade out as they rise
     const height = emberPos[i3 + 1]
     const fade = Math.max(0, 1 - height / 80)
     emberMaterial.opacity = fade
 
-    // Reset ember when too high
     if (height > 80) {
       emberPos[i3] = (Math.random() - 0.5) * world.plane.width * 0.8
       emberPos[i3 + 1] = 0.5
@@ -365,7 +406,9 @@ function animate() {
 
   emberGeometry.attributes.position.needsUpdate = true
 
-  renderer.render(scene, camera)
+  // Heat haze update
+  heatHazePass.uniforms.time.value = frame
+  composer.render()
 }
 
 animate()
